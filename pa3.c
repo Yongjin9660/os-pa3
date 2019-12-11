@@ -64,7 +64,22 @@ extern unsigned int alloc_page(void);
 bool translate(enum memory_access_type rw, unsigned int vpn, unsigned int *pfn)
 {
 	/*** DO NOT MODIFY THE PAGE TABLE IN THIS FUNCTION ***/
-
+	if(rw == 0){
+		if(!current->pagetable.outer_ptes[vpn/16] || !current->pagetable.outer_ptes[vpn/16]->ptes[vpn%16].valid) 
+			return false;
+		else{
+			*pfn = current->pagetable.outer_ptes[vpn/16]->ptes[vpn%16].pfn;
+			return true;
+		}
+	}
+	else{
+		if(!current->pagetable.outer_ptes[vpn/16] || !current->pagetable.outer_ptes[vpn/16]->ptes[vpn%16].valid || !current->pagetable.outer_ptes[vpn/16]->ptes[vpn%16].writable) 
+			return false;
+		else{
+			*pfn = current->pagetable.outer_ptes[vpn/16]->ptes[vpn%16].pfn;
+			return true;
+		}
+	}
 	return false;
 }
 
@@ -88,6 +103,29 @@ bool translate(enum memory_access_type rw, unsigned int vpn, unsigned int *pfn)
  */
 bool handle_page_fault(enum memory_access_type rw, unsigned int vpn)
 {
+	if( rw == 0 ){
+		if(!current->pagetable.outer_ptes[vpn/16]){
+			current->pagetable.outer_ptes[vpn/16] = (struct pte_directory*)malloc(sizeof(struct pte)*16);
+		}
+
+		current->pagetable.outer_ptes[vpn/16]->ptes[vpn%16].valid = true;
+		current->pagetable.outer_ptes[vpn/16]->ptes[vpn%16].writable = true;
+		current->pagetable.outer_ptes[vpn/16]->ptes[vpn%16].pfn = alloc_page();
+		return true;
+	}
+	else{
+		if(!current->pagetable.outer_ptes[vpn/16]){
+			current->pagetable.outer_ptes[vpn/16] = (struct pte_directory*)malloc(sizeof(struct pte)*16);
+		}
+		if(current->pagetable.outer_ptes[vpn/16]->ptes[vpn%16].valid){
+			current->pagetable.outer_ptes[vpn/16]->ptes[vpn%16].writable = true;
+			current->pagetable.outer_ptes[vpn/16]->ptes[vpn%16].pfn = alloc_page();
+			return true;
+		}
+		current->pagetable.outer_ptes[vpn/16]->ptes[vpn%16].valid = true;
+		current->pagetable.outer_ptes[vpn/16]->ptes[vpn%16].writable = true;
+		current->pagetable.outer_ptes[vpn/16]->ptes[vpn%16].pfn = alloc_page();
+	}
 	return true;
 }
 
@@ -108,5 +146,33 @@ bool handle_page_fault(enum memory_access_type rw, unsigned int vpn)
  */
 void switch_process(unsigned int pid)
 {
+	struct process *next = NULL;
+	if(!list_empty(&processes)){
+		list_for_each_entry(next, &processes, list){
+			if(pid == next->pid) {
+				list_add_tail(&current->list, &processes);
+				list_del_init(&next->list);
+				current = next;
+				break;
+			}
+		}
+	}
+	next = (struct process*)malloc(sizeof(struct process));
+	next->pid = pid;
+	
+	for(int i=0 ; i < NR_PTES_PER_PAGE ; i++){
+		if(current->pagetable.outer_ptes[i]){
+ 			next->pagetable.outer_ptes[i] = (struct pte_directory*)malloc(sizeof(struct pte)*16);
+			 for(int j=0;j<NR_PTES_PER_PAGE;j++){
+				 if(current->pagetable.outer_ptes[i]->ptes[j].valid){
+					 current->pagetable.outer_ptes[i]->ptes[j].writable=false;
+					 next->pagetable.outer_ptes[i]->ptes[j].valid=true;
+					 next->pagetable.outer_ptes[i]->ptes[j].pfn = current->pagetable.outer_ptes[i]->ptes[j].pfn;
+				 }
+			 }
+		}
+	}
+	list_add_tail(&current->list, &processes);
+	current=next;
 }
 
